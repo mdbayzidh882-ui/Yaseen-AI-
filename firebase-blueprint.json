@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile, plan tier, voice/language preferences, and ban state.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the user." },
+        "userName": { "type": "string", "description": "User's display name." },
+        "email": { "type": "string", "description": "User's verified email." },
+        "plan": { "type": "string", "enum": ["free", "premium", "owner"], "description": "Subscription tier." },
+        "redeemedCodeId": { "type": "string", "description": "ID of the last redeemed premium or owner code." },
+        "planExpiresAt": { "type": "integer", "description": "Plan expiration timestamp in epoch milliseconds (0 for free or permanent owner)." },
+        "banned": { "type": "boolean", "description": "Whether the user is banned by admin." },
+        "preferredLanguage": { "type": "string", "enum": ["bn", "en"], "description": "Default UI & voice language." },
+        "preferredVoice": { "type": "string", "enum": ["female", "male"], "description": "Selected companion voice." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp when created." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp when updated." }
+      },
+      "required": ["userId", "userName", "plan", "banned", "preferredLanguage", "preferredVoice", "createdAt", "updatedAt"]
+    },
+    "UserMemory": {
+      "title": "UserMemory",
+      "description": "User's personal memory item stored by Sathi or manually edited.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "category": { "type": "string", "enum": ["personal", "preference", "mood", "note"], "description": "Memory category." },
+        "title": { "type": "string", "description": "Short label for the memory." },
+        "content": { "type": "string", "description": "Memory detail." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp when created." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp when updated." }
+      },
+      "required": ["userId", "category", "title", "content", "createdAt", "updatedAt"]
+    },
+    "PremiumCode": {
+      "title": "PremiumCode",
+      "description": "Server-verified activation code generated in the Admin Panel.",
+      "type": "object",
+      "properties": {
+        "codeType": { "type": "string", "enum": ["1_month", "6_months", "1_year", "owner"], "description": "Duration or owner grant type." },
+        "status": { "type": "string", "enum": ["active", "used", "revoked"], "description": "Current status of the code." },
+        "createdBy": { "type": "string", "description": "Admin UID who generated the code." },
+        "usedBy": { "type": "string", "description": "User UID who redeemed a single-use code." },
+        "note": { "type": "string", "description": "Optional admin note." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp when created." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp when updated." }
+      },
+      "required": ["codeType", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Global feature toggles and announcement controlled by Admin Panel.",
+      "type": "object",
+      "properties": {
+        "cameraEnabledForFree": { "type": "boolean" },
+        "longTermMemoryForFree": { "type": "boolean" },
+        "translationForFree": { "type": "boolean" },
+        "dayPlanningForFree": { "type": "boolean" },
+        "announcementText": { "type": "string" },
+        "announcementActive": { "type": "boolean" },
+        "updatedBy": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cameraEnabledForFree", "longTermMemoryForFree", "translationForFree", "dayPlanningForFree", "announcementText", "announcementActive", "updatedBy", "updatedAt"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Immutable admin audit trail.",
+      "type": "object",
+      "properties": {
+        "actorUid": { "type": "string" },
+        "actorEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "target": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorUid", "actorEmail", "action", "target", "details", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles and subscription state."
+    },
+    "/users/{userId}/memories/{memoryId}": {
+      "schema": { "$ref": "#/entities/UserMemory" },
+      "description": "User's personal long-term memories."
+    },
+    "/premium_codes/{codeId}": {
+      "schema": { "$ref": "#/entities/PremiumCode" },
+      "description": "Premium and owner redemption codes."
+    },
+    "/app_config/{configId}": {
+      "schema": { "$ref": "#/entities/AppConfig" },
+      "description": "Global feature flags and announcement banner."
+    },
+    "/activity_logs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Immutable admin audit log entries."
+    }
+  }
+}

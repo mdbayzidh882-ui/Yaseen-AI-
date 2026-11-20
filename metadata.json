@@ -1,0 +1,6 @@
+{
+  "name": "Sathi",
+  "description": "Sathi (সাথী) — Bilingual Bengali & English personal AI voice companion by Mohammad Bayzid Hasan",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

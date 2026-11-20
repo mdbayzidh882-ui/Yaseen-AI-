@@ -1,0 +1,224 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'mdbayzidh882@gmail.com' && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 60 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 120)) &&
+             data.plan in ['free', 'premium', 'owner'] &&
+             (!('redeemedCodeId' in data) || (data.redeemedCodeId is string && data.redeemedCodeId.size() <= 128)) &&
+             (!('planExpiresAt' in data) || (data.planExpiresAt is int && data.planExpiresAt >= 0)) &&
+             data.banned is bool &&
+             data.preferredLanguage in ['bn', 'en'] &&
+             data.preferredVoice in ['female', 'male'];
+    }
+
+    function isValidMemory(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.category in ['personal', 'preference', 'mood', 'note'] &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 1000;
+    }
+
+    function isValidPremiumCode(data) {
+      return data.codeType in ['1_month', '6_months', '1_year', 'owner'] &&
+             data.status in ['active', 'used', 'revoked'] &&
+             data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+             (!('usedBy' in data) || (data.usedBy is string && data.usedBy.size() <= 128)) &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 120));
+    }
+
+    function isValidAppConfig(data) {
+      return data.cameraEnabledForFree is bool &&
+             data.longTermMemoryForFree is bool &&
+             data.translationForFree is bool &&
+             data.dayPlanningForFree is bool &&
+             data.announcementText is string && data.announcementText.size() <= 500 &&
+             data.announcementActive is bool &&
+             data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128;
+    }
+
+    function isValidActivityLog(data) {
+      return data.actorUid is string && data.actorUid.size() >= 1 && data.actorUid.size() <= 128 &&
+             data.actorEmail is string && data.actorEmail.size() <= 120 &&
+             data.action is string && data.action.size() >= 1 && data.action.size() <= 80 &&
+             data.target is string && data.target.size() <= 120 &&
+             data.details is string && data.details.size() <= 400;
+    }
+
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && isValidId(adminUid) && (request.auth.uid == adminUid || isAdmin());
+      allow list, create, update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isOwner(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == userId &&
+                       incoming().plan == 'free' &&
+                       incoming().banned == false &&
+                       incoming().keys().hasAll(['userId', 'userName', 'plan', 'banned', 'preferredLanguage', 'preferredVoice', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'userName', 'email', 'plan', 'redeemedCodeId', 'planExpiresAt', 'banned', 'preferredLanguage', 'preferredVoice', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       (
+                         (isAdmin() &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['userName', 'plan', 'planExpiresAt', 'redeemedCodeId', 'banned', 'preferredLanguage', 'preferredVoice', 'updatedAt'])) ||
+                         (isOwner(userId) &&
+                          existing().banned == false &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['userName', 'preferredLanguage', 'preferredVoice', 'updatedAt'])) ||
+                         (isOwner(userId) &&
+                          existing().banned == false &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['plan', 'redeemedCodeId', 'planExpiresAt', 'updatedAt']) &&
+                          incoming().plan in ['premium', 'owner'] &&
+                          ('redeemedCodeId' in incoming()) &&
+                          isValidId(incoming().redeemedCodeId) &&
+                          exists(/databases/$(database)/documents/premium_codes/$(incoming().redeemedCodeId)) &&
+                          get(/databases/$(database)/documents/premium_codes/$(incoming().redeemedCodeId)).data.status == 'active' &&
+                          (
+                            (get(/databases/$(database)/documents/premium_codes/$(incoming().redeemedCodeId)).data.codeType == 'owner' &&
+                             incoming().plan == 'owner') ||
+                            (get(/databases/$(database)/documents/premium_codes/$(incoming().redeemedCodeId)).data.codeType in ['1_month', '6_months', '1_year'] &&
+                             incoming().plan == 'premium' &&
+                             getAfter(/databases/$(database)/documents/premium_codes/$(incoming().redeemedCodeId)).data.status == 'used' &&
+                             getAfter(/databases/$(database)/documents/premium_codes/$(incoming().redeemedCodeId)).data.usedBy == request.auth.uid)
+                          ))
+                       );
+
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
+
+      match /memories/{memoryId} {
+        allow get: if isValidId(userId) && isValidId(memoryId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId);
+
+        allow create: if isValidId(userId) &&
+                         isValidId(memoryId) &&
+                         isOwner(userId) &&
+                         isValidMemory(incoming()) &&
+                         incoming().userId == userId &&
+                         incoming().keys().hasAll(['userId', 'category', 'title', 'content', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'category', 'title', 'content', 'createdAt', 'updatedAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
+
+        allow update: if isValidId(userId) &&
+                         isValidId(memoryId) &&
+                         isOwner(userId) &&
+                         isValidMemory(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['category', 'title', 'content', 'updatedAt']);
+
+        allow delete: if isValidId(userId) && isValidId(memoryId) && isOwner(userId);
+      }
+    }
+
+    match /premium_codes/{codeId} {
+      allow get: if isSignedIn() && isValidId(codeId);
+      allow list: if isAdmin();
+
+      allow create: if isAdmin() &&
+                       isValidId(codeId) &&
+                       isValidPremiumCode(incoming()) &&
+                       incoming().createdBy == request.auth.uid &&
+                       incoming().status == 'active' &&
+                       incoming().keys().hasAll(['codeType', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['codeType', 'status', 'createdBy', 'usedBy', 'note', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
+
+      allow update: if isSignedIn() &&
+                       isValidId(codeId) &&
+                       isValidPremiumCode(incoming()) &&
+                       incoming().createdBy == existing().createdBy &&
+                       incoming().codeType == existing().codeType &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       (
+                         (isAdmin() &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'note', 'updatedAt'])) ||
+                         (existing().status == 'active' &&
+                          existing().codeType in ['1_month', '6_months', '1_year'] &&
+                          incoming().status == 'used' &&
+                          incoming().usedBy == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'usedBy', 'updatedAt']))
+                       );
+
+      allow delete: if isAdmin() && isValidId(codeId);
+    }
+
+    match /app_config/{configId} {
+      allow get: if isSignedIn() && isValidId(configId);
+      allow list: if isAdmin();
+
+      allow create, update: if isAdmin() &&
+                               isValidId(configId) &&
+                               isValidAppConfig(incoming()) &&
+                               incoming().keys().hasAll(['cameraEnabledForFree', 'longTermMemoryForFree', 'translationForFree', 'dayPlanningForFree', 'announcementText', 'announcementActive', 'updatedBy', 'updatedAt']) &&
+                               incoming().keys().hasOnly(['cameraEnabledForFree', 'longTermMemoryForFree', 'translationForFree', 'dayPlanningForFree', 'announcementText', 'announcementActive', 'updatedBy', 'updatedAt']) &&
+                               incoming().updatedAt is timestamp && incoming().updatedAt <= request.time;
+
+      allow delete: if isAdmin() && isValidId(configId);
+    }
+
+    match /activity_logs/{logId} {
+      allow get: if isAdmin() && isValidId(logId);
+      allow list: if isAdmin();
+
+      allow create: if isAdmin() &&
+                       isValidId(logId) &&
+                       isValidActivityLog(incoming()) &&
+                       incoming().actorUid == request.auth.uid &&
+                       incoming().keys().hasAll(['actorUid', 'actorEmail', 'action', 'target', 'details', 'createdAt']) &&
+                       incoming().keys().hasOnly(['actorUid', 'actorEmail', 'action', 'target', 'details', 'createdAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time;
+
+      allow update, delete: if false;
+    }
+  }
+}
